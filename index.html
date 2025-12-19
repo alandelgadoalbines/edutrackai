@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EduTrackAI Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>EduTrackAI Dashboard</h1>
+    <div class="user-status">
+      <span id="auth-status">Sin sesión</span>
+      <button id="logout-btn" class="secondary" type="button">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card">
+      <h2>Iniciar sesión</h2>
+      <form id="login-form" class="form-grid">
+        <label>
+          Correo electrónico
+          <input id="login-email" name="email" type="email" required />
+        </label>
+        <label>
+          Contraseña
+          <input id="login-password" name="password" type="password" required />
+        </label>
+        <button type="submit">Acceder</button>
+        <p id="login-feedback" class="feedback" role="status"></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-header">
+        <h2>Asistencia</h2>
+        <div class="actions">
+          <button id="refresh-attendance" type="button" class="secondary">Actualizar</button>
+          <button id="download-excel" type="button">Descargar Excel</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Curso</th>
+              <th>Estudiante</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="attendance-body">
+            <tr><td colspan="4" class="muted">Sin datos</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="attendance-feedback" class="feedback" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Registro de incidencias</h2>
+      <form id="incident-form" class="form-grid">
+        <label>
+          Estudiante
+          <input id="incident-student" name="student" required />
+        </label>
+        <label>
+          Curso / Sección
+          <input id="incident-course" name="course" required />
+        </label>
+        <label class="full-width">
+          Descripción
+          <textarea id="incident-description" name="description" required rows="3"></textarea>
+        </label>
+        <label>
+          Severidad
+          <select id="incident-severity" name="severity">
+            <option value="baja">Baja</option>
+            <option value="media">Media</option>
+            <option value="alta">Alta</option>
+          </select>
+        </label>
+        <button type="submit">Guardar incidencia</button>
+        <p id="incident-feedback" class="feedback" role="status"></p>
+      </form>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <small>Consumiendo API: https://adahost.pe/edutrackai/api</small>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
