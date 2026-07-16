@@ -24,7 +24,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/ecocontrol
-          cat ci/ecocontrol-talentos/part*.b64 | base64 --decode > build/ecocontrol.tar.xz
+          cat \
+            ci/ecocontrol-talentos/part00.b64 \
+            ci/ecocontrol-talentos/part01.b64 \
+            ci/ecocontrol-talentos/part02.b64 \
+            ci/ecocontrol-talentos/part03.b64 \
+            ci/ecocontrol-talentos/part04.b64 \
+            ci/ecocontrol-talentos/fix05/chunk00.b64 \
+            ci/ecocontrol-talentos/fix05/chunk01.b64 \
+            ci/ecocontrol-talentos/fix05/chunk02.b64 \
+            ci/ecocontrol-talentos/fix05/chunk03.b64 \
+            ci/ecocontrol-talentos/part06.b64 \
+            ci/ecocontrol-talentos/part07.b64 \
+            | base64 --decode > build/ecocontrol.tar.xz
+          echo '17405ce3ef7a5a2971988ed458d1b40fb0f80ce66f44efad163d413ea8a9d0a2  build/ecocontrol.tar.xz' | sha256sum --check
           tar -xJf build/ecocontrol.tar.xz -C build/ecocontrol
           test -f build/ecocontrol/settings.gradle
           test -f build/ecocontrol/app/build.gradle
