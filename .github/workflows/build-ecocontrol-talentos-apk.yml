@@ -1,0 +1,81 @@
+name: Compilar APK ECOCONTROL Talentos
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ci/ecocontrol-talentos/**'
+      - '.github/workflows/build-ecocontrol-talentos-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Generar APK Android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Reconstruir proyecto Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/ecocontrol
+          cat \
+            ci/ecocontrol-talentos/part00.b64 \
+            ci/ecocontrol-talentos/part01.b64 \
+            ci/ecocontrol-talentos/part02.b64 \
+            ci/ecocontrol-talentos/part03.b64 \
+            ci/ecocontrol-talentos/part04.b64 \
+            ci/ecocontrol-talentos/fix05/chunk00.b64 \
+            ci/ecocontrol-talentos/fix05/chunk01.b64 \
+            ci/ecocontrol-talentos/fix05/chunk02.b64 \
+            ci/ecocontrol-talentos/fix05/chunk03.b64 \
+            ci/ecocontrol-talentos/part06.b64 \
+            ci/ecocontrol-talentos/part07.b64 \
+            | base64 --decode > build/ecocontrol.tar.xz
+          echo '17405ce3ef7a5a2971988ed458d1b40fb0f80ce66f44efad163d413ea8a9d0a2  build/ecocontrol.tar.xz' | sha256sum --check
+          tar -xJf build/ecocontrol.tar.xz -C build/ecocontrol
+          test -f build/ecocontrol/settings.gradle
+          test -f build/ecocontrol/app/build.gradle
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK 35
+        shell: bash
+        run: |
+          sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Configurar Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compilar APK debug
+        working-directory: build/ecocontrol
+        run: gradle --no-daemon clean assembleDebug
+
+      - name: Preparar APK descargable
+        shell: bash
+        run: |
+          cp build/ecocontrol/app/build/outputs/apk/debug/app-debug.apk ECOCONTROL_PACHACUTIN_TALENTOS.apk
+          test -s ECOCONTROL_PACHACUTIN_TALENTOS.apk
+          sha256sum ECOCONTROL_PACHACUTIN_TALENTOS.apk
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ECOCONTROL-PACHACUTIN-TALENTOS-APK
+          path: ECOCONTROL_PACHACUTIN_TALENTOS.apk
+          if-no-files-found: error
+          retention-days: 30
