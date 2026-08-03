@@ -28,12 +28,27 @@ jobs:
       - name: Checkout isolated build branch
         uses: actions/checkout@v4
 
-      - name: Reconstruct Android source project
+      - name: Reconstruct and verify Android source project
         shell: bash
         run: |
           set -euo pipefail
-          cat pachacutin-build/source.b64.part* > /tmp/pachacutin-source.b64
+          cat \
+            pachacutin-build/source.b64.part00 \
+            pachacutin-build/source.b64.part01 \
+            pachacutin-build/source.b64.part02 \
+            pachacutin-build/source.b64.part03a \
+            pachacutin-build/source.b64.part03b \
+            pachacutin-build/source.b64.part03c \
+            pachacutin-build/source.b64.part03d \
+            pachacutin-build/source.b64.part04 \
+            > /tmp/pachacutin-source.b64
+
+          test "$(wc -c < /tmp/pachacutin-source.b64)" -eq 33880
+          echo '5c9b887cd6f295d02f46247bd4445cbb72461665f48ba37490fb97ebff5433d1  /tmp/pachacutin-source.b64' | sha256sum -c -
+
           base64 --decode /tmp/pachacutin-source.b64 > /tmp/pachacutin-source.zip
+          echo '2ad791f1472c390410b8768118d7dad2a781bb3614ba58bd3045e6c8ad4c3321  /tmp/pachacutin-source.zip' | sha256sum -c -
+          unzip -t /tmp/pachacutin-source.zip >/dev/null
           unzip -q /tmp/pachacutin-source.zip -d "$GITHUB_WORKSPACE/build-src"
           test -f "$GITHUB_WORKSPACE/build-src/Pachacutin_Talentos_Android/settings.gradle"
           echo "PROJECT_DIR=$GITHUB_WORKSPACE/build-src/Pachacutin_Talentos_Android" >> "$GITHUB_ENV"
