@@ -1,0 +1,120 @@
+name: Compilar APK Pachacutín V3 Servos
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ci/pachacutin-v3/**'
+      - '.github/workflows/build-pachacutin-v3-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Generar APK Android V3
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruir base Android validada
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_BRANCH='feature/ecocontrol-talentos-apk-20260716'
+          git fetch --depth=1 origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+          mkdir -p build/ecocontrol
+          for p in \
+            ci/ecocontrol-talentos/part00.b64 \
+            ci/ecocontrol-talentos/part01.b64 \
+            ci/ecocontrol-talentos/part02.b64 \
+            ci/ecocontrol-talentos/part03.b64 \
+            ci/ecocontrol-talentos/part04.b64 \
+            ci/ecocontrol-talentos/fix05/chunk00.b64 \
+            ci/ecocontrol-talentos/fix05/chunk01.b64 \
+            ci/ecocontrol-talentos/fix05/chunk02.b64 \
+            ci/ecocontrol-talentos/fix05/chunk03.b64 \
+            ci/ecocontrol-talentos/part06.b64 \
+            ci/ecocontrol-talentos/part07.b64; do
+              git show "origin/$BASE_BRANCH:$p"
+          done | base64 --decode > build/ecocontrol-base.tar.xz
+          echo '17405ce3ef7a5a2971988ed458d1b40fb0f80ce66f44efad163d413ea8a9d0a2  build/ecocontrol-base.tar.xz' | sha256sum --check
+          tar -xJf build/ecocontrol-base.tar.xz -C build/ecocontrol
+          test -f build/ecocontrol/settings.gradle
+          test -f build/ecocontrol/app/build.gradle
+
+      - name: Aplicar diseño V3 y Bluetooth HC-05
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch -d build/ecocontrol -p1 < ci/pachacutin-v3/main-v3.patch
+          cp ci/pachacutin-v3/ClassicBluetoothController.java \
+            build/ecocontrol/app/src/main/java/pe/ecocontrol/pachacutin/ClassicBluetoothController.java
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('build/ecocontrol')
+          main = root / 'app/src/main/java/pe/ecocontrol/pachacutin/MainActivity.java'
+          text = main.read_text(encoding='utf-8')
+          old = '''try { if (ble != null) ble.disconnect();
+                  if (classic != null) classic.release(); } catch (Exception ignored) {}'''
+          new = '''try { if (ble != null) ble.disconnect();
+                  if (classic != null) classic.disconnect(); } catch (Exception ignored) {}'''
+          text = text.replace(old, new)
+          main.write_text(text, encoding='utf-8')
+
+          gradle = root / 'app/build.gradle'
+          g = gradle.read_text(encoding='utf-8')
+          g = g.replace('versionCode 2', 'versionCode 4').replace("versionName '1.1.0'", "versionName '3.0.0'")
+          gradle.write_text(g, encoding='utf-8')
+
+          manifest = root / 'app/src/main/AndroidManifest.xml'
+          m = manifest.read_text(encoding='utf-8')
+          marker = '    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />'
+          classic = '    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />\n'
+          if 'android.hardware.bluetooth"' not in m:
+              m = m.replace(marker, classic + marker)
+          manifest.write_text(m, encoding='utf-8')
+          PY
+          grep -q 'ClassicBluetoothController.Listener' build/ecocontrol/app/src/main/java/pe/ecocontrol/pachacutin/MainActivity.java
+          grep -q 'GIRO ANTIHORARIO' build/ecocontrol/app/src/main/java/pe/ecocontrol/pachacutin/MainActivity.java
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK 35
+        shell: bash
+        run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Configurar Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compilar APK debug
+        working-directory: build/ecocontrol
+        run: gradle --no-daemon clean assembleDebug
+
+      - name: Preparar APK descargable
+        shell: bash
+        run: |
+          cp build/ecocontrol/app/build/outputs/apk/debug/app-debug.apk ECOCONTROL_PACHACUTIN_V3_SERVOS.apk
+          test -s ECOCONTROL_PACHACUTIN_V3_SERVOS.apk
+          sha256sum ECOCONTROL_PACHACUTIN_V3_SERVOS.apk
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ECOCONTROL-PACHACUTIN-V3-SERVOS-APK
+          path: ECOCONTROL_PACHACUTIN_V3_SERVOS.apk
+          if-no-files-found: error
+          retention-days: 30

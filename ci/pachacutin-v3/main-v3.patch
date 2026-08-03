@@ -1,0 +1,287 @@
+--- a/app/src/main/java/pe/ecocontrol/pachacutin/MainActivity.java
++++ b/app/src/main/java/pe/ecocontrol/pachacutin/MainActivity.java
+@@ -59,7 +59,7 @@
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ 
+-public class MainActivity extends Activity implements BleController.Listener {
++public class MainActivity extends Activity implements BleController.Listener, ClassicBluetoothController.Listener {
+     private static final int REQ_BLUETOOTH = 101;
+     private static final int REQ_ENABLE_BT = 102;
+     private static final int REQ_EXPORT = 103;
+@@ -82,6 +82,7 @@
+ 
+     private SharedPreferences prefs;
+     private BleController ble;
++    private ClassicBluetoothController classic;
+     private FrameLayout pageHost;
+     private LinearLayout navBar;
+     private TextView headerBattery;
+@@ -97,7 +98,7 @@
+     private boolean scanning = false;
+     private boolean movementPressed = false;
+     private long lastCommunication = 0;
+-    private String currentConnection = "SIMULACION";
++    private String currentConnection = "CLASSIC";
+     private String lastBleAddress = "";
+     private BluetoothDevice selectedDevice;
+     private String pendingExportCsv;
+@@ -149,6 +150,7 @@
+         prefs = getSharedPreferences("ecocontrol_settings", MODE_PRIVATE);
+         loadSettings();
+         ble = new BleController(this, this);
++        classic = new ClassicBluetoothController(this, this);
+         buildShell();
+         selectTab(0);
+         if (!prefs.getBoolean("welcomeShown", false)) main.postDelayed(this::showWelcomeGuide, 450);
+@@ -166,6 +168,7 @@
+         main.removeCallbacksAndMessages(null);
+         network.shutdownNow();
+         if (ble != null) ble.disconnect();
++        if (classic != null) classic.release();
+     }
+ 
+     private void buildShell() {
+@@ -343,8 +346,8 @@
+         hero.addView(brand);
+ 
+         TextView eyebrow = text("🌱 ROBOT SEMBRADOR INTELIGENTE", 11, Color.rgb(167,243,208), true);
+-        TextView title = text("Control fácil y seguro de Pachacutín 3000", 23, Color.WHITE, true);
+-        TextView subtitle = text("Conecta por Bluetooth, mantén presionado para mover y supervisa cada acción en tiempo real.", 12, Color.argb(225,255,255,255), false);
++        TextView title = text("Control intuitivo de Pachacutín 3000", 23, Color.WHITE, true);
++        TextView subtitle = text("Conecta el HC-05, controla 4 servos de tracción, deposita semillas A/B y perfora en ambos sentidos.", 12, Color.argb(225,255,255,255), false);
+         hero.addView(eyebrow, marginTop(8));
+         hero.addView(title);
+         hero.addView(subtitle);
+@@ -372,11 +375,11 @@
+ 
+     private View buildConnectionCard() {
+         LinearLayout card = card("CONEXIÓN RÁPIDA", "Bluetooth y canal de comunicación");
+-        String[] modes = {"Modo simulación", "Bluetooth BLE HM-10", "Wi-Fi ESP8266/ESP32 (HTTP)"};
++        String[] modes = {"Modo simulación", "Bluetooth clásico HC-05/HC-06", "Bluetooth BLE HM-10", "Wi-Fi ESP8266/ESP32 (HTTP)"};
+         connectionSpinner = new Spinner(this);
+         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, modes);
+         connectionSpinner.setAdapter(adapter);
+-        int selected = "BLE".equals(currentConnection) ? 1 : "WIFI".equals(currentConnection) ? 2 : 0;
++        int selected = "CLASSIC".equals(currentConnection) ? 1 : "BLE".equals(currentConnection) ? 2 : "WIFI".equals(currentConnection) ? 3 : 0;
+         connectionSpinner.setSelection(selected);
+         connectionSpinner.setPadding(dp(10), 0, dp(10), 0);
+         connectionSpinner.setBackground(round(Color.rgb(248,250,252), 14, Color.rgb(203,213,225)));
+@@ -388,7 +391,7 @@
+         card.addView(selectedDeviceView, marginTop(8));
+ 
+         LinearLayout scanRow = horizontal(dp(8));
+-        Button scan = actionButton("1. BUSCAR HM-10", BLUE);
++        Button scan = actionButton("1. ESCANEAR BLUETOOTH", BLUE);
+         Button connect = actionButton("2. CONECTAR", GREEN);
+         Button disconnect = actionButton("DESCONECTAR DE FORMA SEGURA", RED);
+         scan.setOnClickListener(v -> beginScan());
+@@ -412,7 +415,7 @@
+         lastMessageView = text("Último mensaje: " + (connected ? "STATUS:READY" : "Listo para conectar"), 10, MUTED, false);
+         lastMessageView.setPadding(0, dp(8), 0, 0);
+         card.addView(lastMessageView);
+-        TextView help = text("Consejo: acerque el celular al HM-10. Al elegirlo, la app se conectará automáticamente.", 10, MUTED, false);
++        TextView help = text("Recomendado para el módulo de la foto: HC-05/HC-06. Empareje con PIN 1234 o 0000 y luego pulse Conectar.", 10, MUTED, false);
+         help.setPadding(dp(10), dp(9), dp(10), dp(9));
+         help.setBackground(round(Color.rgb(239,246,255), 13));
+         card.addView(help, marginTop(8));
+@@ -421,7 +424,7 @@
+ 
+     @SuppressLint("ClickableViewAccessibility")
+     private View buildMovementCard() {
+-        LinearLayout card = card("MOVIMIENTO", "Mantén presionado para mover · suelta para detener");
++        LinearLayout card = card("DESPLAZAMIENTO · SERVOS 1–4", "Mantén presionado para mover · al soltar se envía STOP");
+         TextView speedLabel = text("Velocidad: " + robot.speed + "%", 13, TEXT, true);
+         speedLabel.setGravity(Gravity.END);
+         ((LinearLayout) card.getChildAt(0)).addView(speedLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+@@ -511,15 +514,13 @@
+     }
+ 
+     private View buildDrillCard() {
+-        LinearLayout card = card("🔩 SISTEMA DE PERFORACIÓN", "Taladro y secuencia de hueco");
++        LinearLayout card = card("🛠 PERFORACIÓN · SERVOS 6 Y 7", "Conectados en paralelo · control horario y antihorario");
+         GridLayout grid = actionGrid(2);
+-        addAction(grid, "SUBIR TALADRO", "DRILL_UP", BLUE, true);
+-        addAction(grid, "BAJAR TALADRO", "DRILL_DOWN", BLUE, true);
+-        addAction(grid, "DETENER TALADRO", "DRILL_STOP", BLUE, true);
+-        addAction(grid, "REALIZAR HUECO", "HOLE_START", GREEN, false);
+-        addAction(grid, "FINALIZAR HUECO", "HOLE_STOP", ROSE, false);
++        addAction(grid, "GIRO HORARIO", "DRILL_CW", BLUE, true);
++        addAction(grid, "GIRO ANTIHORARIO", "DRILL_CCW", BLUE, true);
++        addAction(grid, "DETENER PERFORACIÓN", "DRILL_STOP", ROSE, false);
+         card.addView(grid);
+-        TextView info = text("Duración automática configurada: " + drillSeconds + " s", 10, MUTED, false);
++        TextView info = text("Mantenga presionado para girar. Suelte para detener. Requiere servos de rotación continua.", 10, MUTED, false);
+         card.addView(info, marginTop(6));
+         return card;
+     }
+@@ -540,14 +541,13 @@
+     }
+ 
+     private View buildSeedCard() {
+-        LinearLayout card = card("🌱 SISTEMA DE SIEMBRA", "Semillas y compuerta");
++        LinearLayout card = card("🌱 DOSIFICADOR · SERVO 5", "Semilla A a la derecha · Semilla B a la izquierda");
+         GridLayout grid = actionGrid(2);
+-        Button seed1 = addAction(grid, "SEMILLA 1", "SEED_1", GREEN, false);
+-        Button seed2 = addAction(grid, "SEMILLA 2", "SEED_2", GREEN, false);
+-        seed1.setOnClickListener(v -> confirm("Liberar Semilla 1", "¿Confirma la liberación de la primera semilla?", () -> sendCommand("SEED_1")));
+-        seed2.setOnClickListener(v -> confirm("Liberar Semilla 2", "¿Confirma la liberación de la segunda semilla?", () -> sendCommand("SEED_2")));
+-        addAction(grid, "ABRIR COMPUERTA", "GATE_OPEN", BLUE, false);
+-        addAction(grid, "CERRAR COMPUERTA", "GATE_CLOSE", BLUE, false);
++        Button seedA = addAction(grid, "SEMILLA A · DERECHA", "SEED_A", GREEN, false);
++        Button seedB = addAction(grid, "SEMILLA B · IZQUIERDA", "SEED_B", GREEN, false);
++        seedA.setOnClickListener(v -> confirm("Depositar Semilla A", "¿Confirma el giro del compartimento hacia la derecha?", () -> sendCommand("SEED_A")));
++        seedB.setOnClickListener(v -> confirm("Depositar Semilla B", "¿Confirma el giro del compartimento hacia la izquierda?", () -> sendCommand("SEED_B")));
++        addAction(grid, "CENTRAR COMPARTIMENTO", "SEED_CENTER", BLUE, false);
+         card.addView(grid);
+         return card;
+     }
+@@ -564,7 +564,7 @@
+         Button b = actionButton(label, color);
+         b.setTextSize(11);
+         b.setEnabled(connected && !robot.emergency && (!command.startsWith("DRILL") || "DETENIDO".equals(robot.movement)));
+-        if (continuous && (command.equals("DRILL_UP") || command.equals("DRILL_DOWN"))) {
++        if (continuous && (command.equals("DRILL_UP") || command.equals("DRILL_DOWN") || command.equals("DRILL_CW") || command.equals("DRILL_CCW"))) {
+             b.setOnTouchListener((v,e) -> {
+                 if (e.getAction() == MotionEvent.ACTION_DOWN) sendCommand(command);
+                 if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) sendCommand("DRILL_STOP");
+@@ -793,7 +793,7 @@
+ 
+     private void beginScan() {
+         int mode = connectionSpinner == null ? 1 : connectionSpinner.getSelectedItemPosition();
+-        if (mode != 1) {
++        if (mode != 1 && mode != 2) {
+             toast(mode == 0 ? "El modo simulación no necesita escaneo." : "En Wi-Fi configure la IP y pulse Conectar.");
+             return;
+         }
+@@ -804,15 +804,16 @@
+             return;
+         }
+         scanning = true;
+-        setConnectionMessage("Buscando HM-10 cercanos…");
++        setConnectionMessage(mode == 1 ? "Buscando HC-05/HC-06…" : "Buscando HM-10 BLE…");
+         if (scanProgress != null) scanProgress.setVisibility(View.VISIBLE);
+-        ble.scan(6500);
++        if (mode == 1) classic.scan(7000); else ble.scan(6500);
+     }
+ 
+     private void connectSelectedMode() {
+         int mode = connectionSpinner == null ? 0 : connectionSpinner.getSelectedItemPosition();
+         if (mode == 0) {
+             currentConnection = "SIMULACION";
++            prefs.edit().putString("preferredConnection", currentConnection).apply();
+             connected = true;
+             robot.status = "LISTO";
+             robot.emergency = false;
+@@ -822,20 +823,21 @@
+             showControlPage();
+             updateHeader();
+         } else if (mode == 1) {
++            currentConnection = "CLASSIC";
++            prefs.edit().putString("preferredConnection", currentConnection).apply();
++            if (!ensureBluetoothPermissions()) return;
++            if (selectedDevice == null && !lastBleAddress.isEmpty()) try { selectedDevice = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(lastBleAddress); } catch (Exception ignored) {}
++            if (selectedDevice == null) { toast("Pulse Escanear y seleccione el HC-05/HC-06."); beginScan(); return; }
++            classic.connect(selectedDevice);
++        } else if (mode == 2) {
+             currentConnection = "BLE";
++            prefs.edit().putString("preferredConnection", currentConnection).apply();
+             if (!ensureBluetoothPermissions()) return;
+-            if (selectedDevice == null && !lastBleAddress.isEmpty()) {
+-                try { selectedDevice = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(lastBleAddress); } catch (Exception ignored) {}
+-            }
+-            if (selectedDevice == null) {
+-                toast("Pulse Escanear y seleccione el HM-10.");
+-                beginScan();
+-                return;
+-            }
++            if (selectedDevice == null && !lastBleAddress.isEmpty()) try { selectedDevice = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(lastBleAddress); } catch (Exception ignored) {}
++            if (selectedDevice == null) { toast("Pulse Escanear y seleccione el HM-10."); beginScan(); return; }
+             ble.connect(selectedDevice, serviceUuid, commandUuid, sensorUuid);
+         } else {
+-            currentConnection = "WIFI";
+-            connectWifi();
++            currentConnection = "WIFI"; prefs.edit().putString("preferredConnection", currentConnection).apply(); connectWifi();
+         }
+     }
+ 
+@@ -868,6 +870,7 @@
+         connected = false;
+         movementPressed = false;
+         if (ble != null) ble.disconnect();
++        if (classic != null) classic.disconnect();
+         selectedDevice = null;
+         robot.movement = "DETENIDO";
+         robot.drilling = false;
+@@ -917,8 +920,8 @@
+             }
+             return;
+         }
+-        if ("BLE".equals(currentConnection)) {
+-            boolean ok = ble.send(command);
++        if ("BLE".equals(currentConnection) || "CLASSIC".equals(currentConnection)) {
++            boolean ok = "CLASSIC".equals(currentConnection) ? classic.send(command) : ble.send(command);
+             if (refresh) addHistory(command, ok ? "ENVIADO" : "ERROR:BLE", ok);
+             if (refresh) setConnectionMessage(ok ? "Enviado: " + command : "No se pudo enviar");
+         } else {
+@@ -953,11 +956,9 @@
+         else if (command.equals("L")) robot.movement = "IZQUIERDA";
+         else if (command.equals("R")) robot.movement = "DERECHA";
+         else if (command.equals("S")) robot.movement = "DETENIDO";
+-        else if (command.equals("DRILL_UP")) robot.drillPosition = "SUBIENDO";
+-        else if (command.equals("DRILL_DOWN")) robot.drillPosition = "BAJANDO";
+-        else if (command.equals("DRILL_STOP")) robot.drillPosition = "DETENIDO";
+-        else if (command.equals("HOLE_START")) { robot.drilling = true; robot.status = "PERFORANDO"; scheduleHoleStop(); }
+-        else if (command.equals("HOLE_STOP")) { robot.drilling = false; robot.status = "LISTO"; }
++        else if (command.equals("DRILL_CW")) { robot.drilling = true; robot.drillPosition = "GIRO HORARIO"; robot.status = "PERFORANDO"; }
++        else if (command.equals("DRILL_CCW")) { robot.drilling = true; robot.drillPosition = "GIRO ANTIHORARIO"; robot.status = "PERFORANDO"; }
++        else if (command.equals("DRILL_STOP")) { robot.drilling = false; robot.drillPosition = "DETENIDO"; robot.status = "LISTO"; }
+         else if (command.equals("LIGHT_ON")) robot.lights = true;
+         else if (command.equals("LIGHT_OFF")) robot.lights = false;
+         else if (command.equals("EMERGENCY_STOP")) {
+@@ -1038,7 +1039,8 @@
+         robot.drilling = false;
+         robot.status = "CONEXIÓN PERDIDA";
+         connected = false;
+-        try { if (ble != null) ble.disconnect(); } catch (Exception ignored) {}
++        try { if (ble != null) ble.disconnect();
++        if (classic != null) classic.release(); } catch (Exception ignored) {}
+         addHistory("SAFETY_STOP", reason, false);
+         toast(reason);
+         updateHeader();
+@@ -1135,6 +1137,18 @@
+         updateHeader();
+     }
+ 
++    @Override public void onClassicDevices(List<BluetoothDevice> devices) {
++        scanning=false; if(scanProgress!=null) scanProgress.setVisibility(View.GONE);
++        if(devices.isEmpty()){toast("No se encontraron dispositivos. Active y empareje el HC-05.");return;}
++        String[] labels=new String[devices.size()]; for(int i=0;i<devices.size();i++) labels[i]=ClassicBluetoothController.safeName(devices.get(i))+"\n"+devices.get(i).getAddress();
++        new AlertDialog.Builder(this).setTitle("Seleccione HC-05 / HC-06").setItems(labels,(d,w)->{selectedDevice=devices.get(w);lastBleAddress=selectedDevice.getAddress();prefs.edit().putString("lastBleAddress",lastBleAddress).apply();setConnectionMessage("Seleccionado: "+ClassicBluetoothController.safeName(selectedDevice));}).setNegativeButton("Cancelar",null).show();
++    }
++    @Override public void onClassicConnected(BluetoothDevice device){connected=true;currentConnection="CLASSIC";selectedDevice=device;lastCommunication=System.currentTimeMillis();robot.status="LISTO";addHistory("CONNECT","HC-05:"+ClassicBluetoothController.safeName(device),true);updateHeader();showControlPage();sendRaw("GET_STATUS",false);}
++    @Override public void onClassicDisconnected(){if(!"CLASSIC".equals(currentConnection))return;connected=false;robot.movement="DETENIDO";robot.drilling=false;robot.status="SIN CONEXIÓN";setConnectionMessage("Bluetooth clásico desconectado");updateHeader();}
++    @Override public void onClassicMessage(String message){handleIncoming(message);}
++    @Override public void onClassicStatus(String status){setConnectionMessage(status);}
++    @Override public void onClassicError(String error){setConnectionMessage(error);toast(error);addHistory("HC-05",error,false);}
++
+     private void updateHeader() {
+         if (headerBattery != null) headerBattery.setText(robot.battery + "%");
+         if (headerStatus != null) {
+@@ -1181,6 +1195,7 @@
+     }
+ 
+     private void loadSettings() {
++        currentConnection = prefs.getString("preferredConnection", "CLASSIC");
+         serviceUuid = prefs.getString("serviceUuid", "FFE0");
+         lastBleAddress = prefs.getString("lastBleAddress", "");
+         commandUuid = prefs.getString("commandUuid", "FFE1");
+@@ -1232,7 +1247,7 @@
+         TextView title = text("Bienvenido a ECOCONTROL", 20, TEXT, true);
+         title.setGravity(Gravity.CENTER);
+         content.addView(title);
+-        TextView body = text("1. Enciende el Arduino Mega y el HM-10.\n2. Pulsa BUSCAR HM-10 y selecciona el dispositivo.\n3. La app se conectará y habilitará los controles.\n\nMantén presionadas las flechas para mover; al soltar, el robot se detiene.", 13, MUTED, false);
++        TextView body = text("1. Enciende el Arduino Mega 2560 y el módulo HC-05/HC-06.\n2. Empareja el módulo desde Ajustes Bluetooth con PIN 1234 o 0000.\n3. En la app selecciona Bluetooth clásico, pulsa ESCANEAR y luego CONECTAR.\n\nMantén presionadas las flechas para mover; al soltar, el robot se detiene. Los controles de perforación también funcionan mientras se mantienen presionados.", 13, MUTED, false);
+         body.setPadding(0, dp(4), 0, dp(4));
+         content.addView(body);
+         new AlertDialog.Builder(this)
