@@ -7,6 +7,12 @@ on:
     paths:
       - 'pachacutin-build/**'
       - '.github/workflows/build-pachacutin-talentos.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pachacutin-build/**'
+      - '.github/workflows/build-pachacutin-talentos.yml'
   workflow_dispatch:
 
 permissions:
