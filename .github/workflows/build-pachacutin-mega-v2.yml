@@ -1,0 +1,103 @@
+name: Build Pachacutin Mega v2 APK
+
+on:
+  push:
+    branches:
+      - build/pachacutin-mega-v2-20260805
+    paths:
+      - 'pachacutin-mega-build/**'
+      - '.github/workflows/build-pachacutin-mega-v2.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pachacutin-mega-build/**'
+      - '.github/workflows/build-pachacutin-mega-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile Android APK for Arduino Mega
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout isolated build branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify Android source project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            pachacutin-mega-build/source.b64.part00 \
+            pachacutin-mega-build/source.b64.part01 \
+            pachacutin-mega-build/source.b64.part02 \
+            pachacutin-mega-build/source.b64.part03 \
+            pachacutin-mega-build/source.b64.part04 \
+            pachacutin-mega-build/source.b64.part05 \
+            pachacutin-mega-build/source.b64.part06 \
+            > /tmp/pachacutin-mega-source.b64
+
+          test "$(wc -c < /tmp/pachacutin-mega-source.b64)" -eq 42948
+          echo '893b6e0719afeb184252db63e18b17206b381f91b5e31faa66d3452a01768547  /tmp/pachacutin-mega-source.b64' | sha256sum -c -
+
+          base64 --decode /tmp/pachacutin-mega-source.b64 > /tmp/pachacutin-mega-source.zip
+          echo '2d2148d0efc87fe9f23561e74c1a27d7bafb2f42025209cc1f1533a41f5d8b2f  /tmp/pachacutin-mega-source.zip' | sha256sum -c -
+          unzip -t /tmp/pachacutin-mega-source.zip >/dev/null
+          unzip -q /tmp/pachacutin-mega-source.zip -d "$GITHUB_WORKSPACE/build-src"
+          test -f "$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Android_v2/settings.gradle"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Android_v2" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Ensure Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Compile debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p "$PROJECT_DIR" :app:assembleDebug --stacktrace
+
+      - name: Prepare deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" dist/PACHACUTIN_Mega_Bluetooth_v2.apk
+          cp "$PROJECT_DIR/reference/pachacutin_receptor_mega_v2_1_recomendado.ino" dist/
+          cp "$PROJECT_DIR/reference/pachacutin_receptor_v2_original.ino" dist/
+          cp "$PROJECT_DIR/GUIA_PRUEBA_ARDUINO_MEGA.txt" dist/
+          sha256sum dist/PACHACUTIN_Mega_Bluetooth_v2.apk > dist/PACHACUTIN_Mega_Bluetooth_v2.apk.sha256
+          unzip -t dist/PACHACUTIN_Mega_Bluetooth_v2.apk >/dev/null
+
+      - name: Upload installable APK and Arduino files
+        uses: actions/upload-artifact@v4
+        with:
+          name: PACHACUTIN-Mega-v2-Android
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
