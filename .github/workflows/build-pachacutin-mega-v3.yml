@@ -1,0 +1,287 @@
+name: Build PACHACUTIN Mega Android v3
+
+on:
+  push:
+    branches:
+      - build/pachacutin-mega-v3-androidstudio
+    paths:
+      - 'pachacutin-mega-build/**'
+      - '.github/workflows/build-pachacutin-mega-v3.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pachacutin-mega-build/**'
+      - '.github/workflows/build-pachacutin-mega-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile APK and Android Studio project
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout isolated build branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct original Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            pachacutin-mega-build/source.b64.part00 \
+            pachacutin-mega-build/source.b64.part01 \
+            pachacutin-mega-build/source.b64.part02 \
+            pachacutin-mega-build/source.b64.part03 \
+            pachacutin-mega-build/source.b64.part04 \
+            pachacutin-mega-build/source.b64.part05 \
+            pachacutin-mega-build/source.b64.part06 \
+            > /tmp/pachacutin-mega-source.b64
+
+          test "$(wc -c < /tmp/pachacutin-mega-source.b64)" -eq 42948
+          echo '893b6e0719afeb184252db63e18b17206b381f91b5e31faa66d3452a01768547  /tmp/pachacutin-mega-source.b64' | sha256sum -c -
+          base64 --decode /tmp/pachacutin-mega-source.b64 > /tmp/pachacutin-mega-source.zip
+          echo '2d2148d0efc87fe9f23561e74c1a27d7bafb2f42025209cc1f1533a41f5d8b2f  /tmp/pachacutin-mega-source.zip' | sha256sum -c -
+          unzip -t /tmp/pachacutin-mega-source.zip >/dev/null
+          unzip -q /tmp/pachacutin-mega-source.zip -d "$GITHUB_WORKSPACE/build-src"
+          test -f "$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Android_v2/settings.gradle"
+          mv "$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Android_v2" "$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Escuela_Talentos"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/build-src/PACHACUTIN_Mega_Escuela_Talentos" >> "$GITHUB_ENV"
+
+      - name: Adapt project to Arduino Mega INO protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > "$PROJECT_DIR/app/build.gradle" <<'GRADLE'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'pe.edu.talentos.pachacutin'
+              compileSdk 35
+
+              defaultConfig {
+                  // New package ID prevents signature conflicts with previous test APKs.
+                  applicationId 'pe.edu.talentos.pachacutinmega.et'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 3
+                  versionName '3.0.0'
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          GRADLE
+
+          cat > "$PROJECT_DIR/settings.gradle" <<'GRADLE'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "PACHACUTIN_Mega_Escuela_Talentos"
+          include(":app")
+          GRADLE
+
+          cat > "$PROJECT_DIR/app/src/main/AndroidManifest.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
+              <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+              <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+              <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+              <application
+                  android:allowBackup="true"
+                  android:fullBackupContent="@xml/backup_rules"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@drawable/ic_launcher"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          XML
+
+          cat > "$PROJECT_DIR/app/src/main/res/values/strings.xml" <<'XML'
+          <resources>
+              <string name="app_name">PACHACUTÍN Mega ET</string>
+          </resources>
+          XML
+
+          # Institutional launcher icon: blue/red identity, white T and lightbulb motif.
+          cat > "$PROJECT_DIR/app/src/main/res/drawable/ic_launcher.xml" <<'XML'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#25398F" android:pathData="M0,0h108v108h-108z" />
+              <path android:fillColor="#ED0038" android:pathData="M50,0h58v108h-58z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M13,27h43v11h-15v44h-13v-44h-15z" />
+              <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+                  android:pathData="M76,18c-12,0 -21,9 -21,21c0,8 4,13 8,18c2,2 3,5 3,8v3h20v-3c0,-3 1,-6 3,-8c4,-5 8,-10 8,-18c0,-12 -9,-21 -21,-21zM76,24c9,0 15,6 15,15c0,6 -3,10 -6,14c-3,3 -5,7 -5,11h-8c0,-4 -2,-8 -5,-11c-3,-4 -6,-8 -6,-14c0,-9 6,-15 15,-15z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M66,72h20v5h-20zM69,80h14v5h-14z" />
+          </vector>
+          XML
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path(__import__('os').environ['PROJECT_DIR']) / 'app/src/main/java/pe/edu/talentos/pachacutin/MainActivity.java'
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('PACHACUTÍN 3000 · MEGA', 'PACHACUTÍN 3000 · ARDUINO MEGA')
+          s = s.replace('Buscar HC-06', 'Buscar HC-05/HC-06')
+          s = s.replace('Aplicación Mega lista. Enciende el Arduino y pulsa Buscar HC-05/HC-06.', 'Aplicación adaptada al INO del Arduino Mega. Enciende el robot y busca el HC-05/HC-06.')
+          s = s.replace('Arduino Mega · HC-06 · Serial1 (18/19) · 9600', 'Arduino Mega · HC-05/HC-06 · Serial1 TX1/RX1 · 9600')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          cat > "$PROJECT_DIR/README.md" <<'MD'
+          # PACHACUTÍN Mega — Escuela de Talentos
+
+          Aplicación Android nativa para controlar un Arduino Mega por Bluetooth clásico SPP con HC-05 o HC-06.
+
+          ## Comandos del archivo INO
+
+          | Proceso | Acción | Comando |
+          |---|---|---|
+          | Movimiento | Avanzar | `I` |
+          | Movimiento | Retroceder | `L` |
+          | Movimiento | Pivote D | `J` |
+          | Movimiento | Pivote I | `K` |
+          | Movimiento | Detener | `Z` |
+          | Semillas | Giro A | `A` |
+          | Semillas | Giro B | `B` |
+          | Semillas | Detener | `W` |
+          | Taladro | Subir | `G` |
+          | Taladro | Bajar | `H` |
+          | Taladro | Detener | `T` |
+          | Luces | Alternar | `N` |
+          | Bocina | Alternar | `M` |
+          | Bomba | Alternar | `P` |
+
+          `O`, `Y` y `Q` son marcas sin acción física propia en el firmware.
+
+          ## Conexión
+
+          - HC-05/HC-06 TX → Arduino Mega RX1, pin 19.
+          - HC-05/HC-06 RX → Arduino Mega TX1, pin 18, con adaptación de nivel cuando corresponda.
+          - GND común.
+          - Velocidad: 9600 baudios.
+
+          El identificador nuevo `pe.edu.talentos.pachacutinmega.et` evita el conflicto de firma que producía “No se instaló la app” con APK modificados manualmente.
+          MD
+
+          # Keep the exact Arduino sketches inside the Android Studio project.
+          test -f "$PROJECT_DIR/reference/pachacutin_receptor_mega_v2_1_recomendado.ino"
+          test -f "$PROJECT_DIR/reference/pachacutin_receptor_v2_original.ino"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Ensure Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Generate Gradle wrapper and compile APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p "$PROJECT_DIR" wrapper --gradle-version 8.10.2
+          "$PROJECT_DIR/gradlew" --no-daemon -p "$PROJECT_DIR" :app:assembleDebug --stacktrace
+
+      - name: Verify package, signature and launcher activity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -F "package: name='pe.edu.talentos.pachacutinmega.et'" /tmp/apk-badging.txt
+          grep -F "launchable-activity: name='pe.edu.talentos.pachacutin.MainActivity'" /tmp/apk-badging.txt
+          unzip -t "$APK" >/dev/null
+
+      - name: Prepare APK and Android Studio source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          cp "$APK" dist/PACHACUTIN_Mega_Escuela_Talentos_v3.apk
+          cp "$PROJECT_DIR/reference/pachacutin_receptor_mega_v2_1_recomendado.ino" dist/
+          cp "$PROJECT_DIR/reference/pachacutin_receptor_v2_original.ino" dist/
+          cp "$PROJECT_DIR/README.md" dist/LEEME_PACHACUTIN_MEGA_V3.md
+          sha256sum dist/PACHACUTIN_Mega_Escuela_Talentos_v3.apk > dist/PACHACUTIN_Mega_Escuela_Talentos_v3.apk.sha256
+
+          rm -rf "$PROJECT_DIR/app/build" "$PROJECT_DIR/.gradle" "$PROJECT_DIR/build"
+          (cd "$(dirname "$PROJECT_DIR")" && zip -qr "$GITHUB_WORKSPACE/dist/PACHACUTIN_Mega_Proyecto_Android_Studio_v3.zip" "$(basename "$PROJECT_DIR")")
+
+      - name: Upload installable APK and complete source
+        uses: actions/upload-artifact@v4
+        with:
+          name: PACHACUTIN-Mega-Escuela-Talentos-v3
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
